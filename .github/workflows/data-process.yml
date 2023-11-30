@@ -1,13 +1,16 @@
-name: Run JavaScript Function
+name: Process Data
 
 on:
   push:
     branches:
       - main
+  schedule:
+    - cron: "0 0 * * *"
 
 jobs:
   run_function:
     runs-on: ubuntu-latest
+    environment: 'shafi-main-runner'
 
     steps:
     - name: Checkout code
@@ -16,8 +19,11 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v3
       with:
-        node-version: '14'
+        node-version: '18'
 
-    - name: Run JavaScript function
+    - name: Run Data Processor
       run: |
         node server/db-to-json.js
+      env:
+        SB_URL: ${{ secrets.SB_URL }}
+        SB_API_PASS: ${{ secrets.SB_API_PASS }}

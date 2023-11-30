@@ -1,35 +1,31 @@
 const fs = require('fs');
 const { createClient } = require('@supabase/supabase-js');
+const SB_URL='https://apfvanrrmosixcmtitkb.supabase.co';
+
+const supabase = createClient(process.env.SB_URL, process.env.SB_API_PASS, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+})
 
 /**
  * @returns {Array<Object>}
  */
 async function fetchData() {
-    const provider = createClient(process.env.SB_URL, process.env.SB_KEY);
-    const authResponse = await provider.auth.signInWithPassword({
-        email: 'bot@masjidinfo.com',
-        password: process.env.SB_BOT_PASS,
-    });
-    if (authResponse.error?.status) {
-        throw new Error(`${authResponse.error.name} - ${authResponse.error.message}`);
-    }
-
-    const access_token = authResponse.data.session.access_token;
-    
-    const total = (await provider.from('masjids').select('*', { head: true, count: 'exact' })).count;
+    const total = (await supabase.from('masjids').select('*', { head: true, count: 'exact' })).count;
 
     const pages = [];
     let page = 1;
     let perPage = 100;
     const totalPage = Math.ceil(total / perPage);
-    let pageData = [];
 
     while (page <= totalPage) {
-        pageData = await provider.from('masjids').select().range((page - 1) * perPage, page * perPage);
+        const pageData = await supabase.from('masjids').select().range((page - 1) * perPage, page * perPage);
         page += 1;
-        pages.push(pageData);
+        pages.push(pageData.data);
     }
-    
+
     return pages.flat();
 }
 
@@ -77,16 +73,16 @@ function convert(masjid) {
         magrib_at: masjid.magrib_at,
         isha_at: masjid.isha_at,
         juma_at: masjid.juma_at,
-        tags: masjid.tags.split(',').map(tag => tag.trim()),
+        tags: masjid.tags ? masjid.tags.split(',').map(tag => tag.trim()) : [],
     };
 }
 
 /**
- * @param {string} name - file name
+ * @param {string} fileName - file name
  * @param {Object|Array} data
  * @returns {boolean}
  */
-async function saveAsStaticFile(name, data) {
+async function saveAsStaticFile(fileName, data) {
     let completed = false;
 
     const abortController = new AbortController();
@@ -100,10 +96,11 @@ async function saveAsStaticFile(name, data) {
 
     try {
         fs.writeFileSync(
-            `../data/${name}`,
+            `./${fileName}`,
             JSON.stringify(data),
-            { encoding: 'utf8', signal: abortController }
+            { encoding: 'utf8', signal: abortController.signal }
         );
+        await uploadToStorage(fileName);
         completed = true;
     } catch (error) {
         console.error(error);
@@ -113,6 +110,25 @@ async function saveAsStaticFile(name, data) {
     }
 
     return completed;
+}
+
+async function uploadToStorage(fileName) {
+    const bucketDir = 'public';
+    const bucketName = 'masjid-info';
+
+    const file = fs.readFileSync(fileName);
+
+    const { data, error } = await supabase
+        .storage
+        .from(bucketName)
+        .upload(
+            `${bucketDir}/${fileName}`, 
+            file, 
+            {
+                cacheControl: '3600',
+                upsert: true
+            }
+        );
 }
 
 /**
@@ -127,8 +143,22 @@ function createIndex(masjids) {
     const searchIndex = {};
     
     masjids.map(masjid => {
-        if (searchIndex[masjid.])
-    })
+        if (!searchIndex[masjid.name]) {
+            searchIndex[masjid.name] = [masjid.id];
+        } else {
+            searchIndex[masjid.name].push(masjid.id);
+        }
+        
+        masjid.tags.map(tag => {
+            if (searchIndex[tag]) {
+                searchIndex[tag].push(masjid.id);
+            } else {
+                searchIndex[tag] = [masjid.id];
+            }
+        });
+    });
+    
+    return searchIndex;
 }
 
 async function run() {
@@ -138,13 +168,15 @@ async function run() {
 
     const searchIndex = createIndex(processedData);
 
-    const isProcessed = await saveAsStaticFile(processedData);
+    const isProcessed = await saveAsStaticFile('masjids.json', processedData);
     
-    if (isProcessed) {
+    const isSaved = await saveAsStaticFile('index.json', searchIndex);
+    
+    if (isProcessed && isSaved) {
         console.log('Data processed');
     } else {
         process.exit(1);
     }
 }
 
-run().catch(console.error).then(console.log);
+run().catch(console.error);
