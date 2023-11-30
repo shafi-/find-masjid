@@ -22,6 +22,9 @@ jobs:
       with:
         node-version: '18'
 
+    - name: Install dependencies
+      run: npm install
+
     - name: Run Data Processor
       run: |
         node server/db-to-json.js
