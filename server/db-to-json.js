@@ -1,6 +1,16 @@
 const fs = require('fs');
 const { createClient } = require('@supabase/supabase-js');
-const SB_URL='https://apfvanrrmosixcmtitkb.supabase.co';
+
+const bucketDir = 'public';
+const bucketName = 'masjid-info';
+
+/**
+ * Type definitions
+ *
+ * @typedef {Date} Timetz
+ *
+ * @typedef {{ id: string, name: string, description: string, fajr_at: Timetz, juhr_at: Timetz, asr_at: Timetz, magrib_at: Timetz, isha_at: Timetz, location: { lat: string, lng: string }, tags: string[] }} MasjidDto
+ */
 
 const supabase = createClient(process.env.SB_URL, process.env.SB_API_PASS, {
   auth: {
@@ -9,9 +19,6 @@ const supabase = createClient(process.env.SB_URL, process.env.SB_API_PASS, {
   }
 })
 
-/**
- * @returns {Array<Object>}
- */
 async function fetchData() {
     const total = (await supabase.from('masjids').select('*', { head: true, count: 'exact' })).count;
 
@@ -28,14 +35,6 @@ async function fetchData() {
 
     return pages.flat();
 }
-
-/**
- * @typedef {Date} Timetz
- */
-
-/**
- * @typedef {{ id: string, name: string, description: string, fajr_at: Timetz, juhr_at: Timetz, asr_at: Timetz, magrib_at: Timetz, isha_at: Timetz, location: { lat: string, lng: string }, tags: string[] }} MasjidDto
- */
 
 /**
  * @param {Object} masjid
@@ -100,7 +99,11 @@ async function saveAsStaticFile(fileName, data) {
             JSON.stringify(data),
             { encoding: 'utf8', signal: abortController.signal }
         );
+
         await uploadToStorage(fileName);
+
+        fs.rmSync(`./${fileName}`);
+
         completed = true;
     } catch (error) {
         console.error(error);
@@ -113,10 +116,8 @@ async function saveAsStaticFile(fileName, data) {
 }
 
 async function uploadToStorage(fileName) {
-    const bucketDir = 'public';
-    const bucketName = 'masjid-info';
-
     const file = fs.readFileSync(fileName);
+    await backupIfExist(fileName);
 
     const { data, error } = await supabase
         .storage
@@ -159,6 +160,10 @@ function createIndex(masjids) {
     });
     
     return searchIndex;
+}
+
+function backupIfExist(fileName) {
+    return supabase.storage.from(bucketName).copy(`${bucketDir}/${fileName}`, `backup/${new Date().toDateString()}-${fileName}`);
 }
 
 async function run() {
